@@ -28,14 +28,14 @@ class VideoAttacker:
 
     def h264_compress(self, input_path, output_path, crf=23):
         """
-        [关键修复] 添加 -pix_fmt yuv420p 以支持 GIF 转 MP4
+        [防弹版] H.264 压缩攻击
         """
         cmd = [
             self.ffmpeg, '-y', '-i', input_path,
             '-c:v', 'libx264', 
-            '-pix_fmt', 'yuv420p',  # <--- 新增：强制转换颜色空间
             '-crf', str(crf),
-            '-preset', 'slow', 
+            '-pix_fmt', 'yuv420p',
+            '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
             output_path
         ]
         self._run_ffmpeg(cmd)
@@ -43,14 +43,15 @@ class VideoAttacker:
 
     def h265_compress(self, input_path, output_path, crf=28):
         """
-        [关键修复] 同样添加 -pix_fmt yuv420p
+        [防弹版] 极其凶残的 HEVC/H.265 压缩攻击
         """
         cmd = [
             self.ffmpeg, '-y', '-i', input_path,
-            '-c:v', 'libx265', 
-            '-pix_fmt', 'yuv420p',  # <--- 新增
+            '-c:v', 'libx265',      
             '-crf', str(crf),
-            '-preset', 'slow',
+            '-pix_fmt', 'yuv420p',
+            '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+            '-x265-params', 'no-sao=1:bframes=0',
             output_path
         ]
         self._run_ffmpeg(cmd)
@@ -85,7 +86,7 @@ class VideoAttacker:
 
     def bit_error_noise(self, input_path, output_path, error_rate=0.00001):
         """
-        [论文对齐] 模拟信道传输中的比特翻转
+        [架构师修复] 模拟纯粹的信道干扰，强制采用无损编码，杜绝缺省二次压缩污染。
         """
         reader = imageio.get_reader(input_path)
         meta = reader.get_meta_data()
@@ -94,15 +95,20 @@ class VideoAttacker:
         if 'fps' in meta:
             fps = meta['fps']
         elif 'duration' in meta and meta['duration'] > 0:
-            # GIF 的 duration 通常是单帧停留的毫秒数
             fps = 1000.0 / meta['duration']
         else:
-            fps = 16  # 如果都没有，默认使用 AnimateDiff 常用的 8 fps
+            fps = 16  
             
-        writer = imageio.get_writer(output_path, fps=fps)
+        # 【绝对红线】强制挂载 libx264，指定 quality=10 (在 imageio-ffmpeg 中代表无损/极高比特率)，并采用 yuv444p 无损色彩采样
+        writer = imageio.get_writer(
+            output_path, 
+            fps=fps, 
+            codec='libx264', 
+            quality=10, 
+            pixelformat='yuv444p'
+        )
         
         for frame in reader:
-            # 添加椒盐噪声或高斯噪声
             noise = np.random.normal(0, 5, frame.shape).astype('int16')
             noisy_frame = frame.astype('int16') + noise
             noisy_frame = np.clip(noisy_frame, 0, 255).astype('uint8')
